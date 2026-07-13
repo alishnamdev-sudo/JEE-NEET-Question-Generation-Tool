@@ -174,6 +174,67 @@ function loadDatabase(): PastPaperQuestion[] {
     console.error("RAG Engine: Error loading NEET PYQs database:", e);
   }
 
+  // Load PDF-Ingested NEET Questions (extracted from uploaded PDF/textbook sources)
+  // This dataset ships with pre-flattened fields (questionText, options, correctAnswer,
+  // subject, chapter, topic, year, difficulty), so we map them directly instead of using
+  // mapJsonQuestion (whose Answer/Tags handling targets the PYQ schema).
+  try {
+    const pdfNeetPath = path.join(process.cwd(), "src", "data", "NEET", "PDF_Ingested_Questions.json");
+    if (fs.existsSync(pdfNeetPath)) {
+      const data = fs.readFileSync(pdfNeetPath, "utf-8");
+      const questions = JSON.parse(data);
+      if (Array.isArray(questions)) {
+        questions.forEach((q: any, idx: number) => {
+          const rawSubject = String(q.subject || (q.Tags && q.Tags[0] && q.Tags[0].Subject) || "Physics").toLowerCase();
+          let subject: PastPaperQuestion["subject"] = "Physics";
+          if (rawSubject.includes("math")) subject = "Mathematics";
+          else if (rawSubject.includes("chem")) subject = "Chemistry";
+          else if (rawSubject.includes("biol") || rawSubject.includes("bot") || rawSubject.includes("zoo")) subject = "Biology";
+          else if (rawSubject.includes("phys")) subject = "Physics";
+
+          const rawDiff = String(q.difficulty || "Medium").toLowerCase();
+          let difficulty: PastPaperQuestion["difficulty"] = "Medium";
+          if (rawDiff.includes("easy") || rawDiff.includes("beginner")) difficulty = "Easy";
+          else if (rawDiff.includes("hard") || rawDiff.includes("tough") || rawDiff.includes("difficult")) difficulty = "Hard";
+
+          const rawType = String(q.type || q.Type || "").toLowerCase();
+          const type: PastPaperQuestion["type"] = rawType.includes("num") ? "Numerical" : "SCQ";
+
+          const options = Array.isArray(q.options)
+            ? q.options.map((o: any) => String(o))
+            : undefined;
+          const year = Number(q.year) || 2024;
+          const chapterName = q.chapter || (q.Tags && q.Tags[0] && q.Tags[0].Chapter) || "General";
+          const topicName = q.topic || (q.Tags && q.Tags[0] && q.Tags[0].Topic) || "General";
+
+          pastPapersDatabase.push({
+            id: String(q.id || q.QuestionId || `pdf_neet_${idx}`),
+            examPattern: "NEET",
+            grade: "Class 12",
+            subject,
+            chapterName,
+            topicName,
+            subTopic: q.topic || undefined,
+            year,
+            type,
+            questionText: q.questionText || q.Question || "",
+            options,
+            correctAnswer: q.correctAnswer || "",
+            solution: q.solution || "",
+            difficulty,
+            citation: `NEET ${year} - ${chapterName}`,
+            sourceExam: "NEET"
+          });
+        });
+        console.log(`RAG Engine: Loaded ${questions.length} questions from PDF-Ingested NEET dataset.`);
+      }
+    } else {
+      console.warn("RAG Engine: PDF-Ingested NEET file not found at:", pdfNeetPath);
+    }
+  } catch (e) {
+    console.error("RAG Engine: Error loading PDF-Ingested NEET database:", e);
+  }
+
   hasLoaded = true;
   return pastPapersDatabase;
 }
